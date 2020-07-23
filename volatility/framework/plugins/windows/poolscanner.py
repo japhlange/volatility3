@@ -85,11 +85,21 @@ class PoolHeaderScanner(interfaces.layers.ScannerInterface):
                 if constraint.page_type is not None:
                     checks_pass = False
 
+                    # we only care about these types even though Windows supports a lot more pool types.
+                    # see also https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ne-wdm-_pool_type
+                    # and Kernel Pool Exploitation on Windows 7 by Tarjei Mandt (2011))
+                    if header.PoolType > PoolType.FREE | PoolType.NONPAGED | PoolType.PAGED:
+                        continue
+
                     if (constraint.page_type & PoolType.FREE) and header.PoolType == 0:
                         checks_pass = True
                     elif (constraint.page_type & PoolType.PAGED) and header.PoolType % 2 == 0 and header.PoolType > 0:
                         checks_pass = True
                     elif (constraint.page_type & PoolType.NONPAGED) and header.PoolType % 2 == 1:
+                        checks_pass = True
+                    elif (constraint.page_type
+                          & PoolType.NONPAGED) and header.PoolType & (PoolType.NONPAGED | PoolType.FREE):
+                        # nonpaged/freed netw objects
                         checks_pass = True
 
                     if not checks_pass:
@@ -370,6 +380,7 @@ class PoolScanner(plugins.PluginInterface):
 
             mem_object = header.get_object(type_name = constraint.type_name,
                                            use_top_down = is_windows_8_or_later,
+                                           kernel_symbol_table = symbol_table,
                                            executive = constraint.object_type is not None,
                                            native_layer_name = 'primary')
 

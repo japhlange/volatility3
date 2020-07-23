@@ -16,6 +16,7 @@ class POOL_HEADER(objects.StructType):
     def get_object(self,
                    type_name: str,
                    use_top_down: bool,
+                   kernel_symbol_table: str,
                    executive: bool = False,
                    native_layer_name: Optional[str] = None) -> Optional[interfaces.objects.ObjectInterface]:
         """Carve an object or data structure from a kernel pool allocation
@@ -33,7 +34,8 @@ class POOL_HEADER(objects.StructType):
         if constants.BANG in type_name:
             symbol_table_name, type_name = type_name.split(constants.BANG)[0:2]
 
-        object_header_type = self._context.symbol_space.get_type(symbol_table_name + constants.BANG + "_OBJECT_HEADER")
+        object_header_type = self._context.symbol_space.get_type(kernel_symbol_table + constants.BANG +
+                                                                 "_OBJECT_HEADER")
         pool_header_size = self.vol.size
 
         # if there is no object type, then just instantiate a structure
