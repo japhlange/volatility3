@@ -11,7 +11,7 @@ import lzma
 import os
 from bisect import bisect
 from typing import Tuple, Dict, Any, Optional, Union, List
-from urllib import request, error
+from urllib import request, error, parse
 
 from volatility3.framework import contexts, interfaces, constants
 from volatility3.framework.layers import physical, msf, resources
@@ -481,16 +481,16 @@ class PdbReader:
             name = None
             address = None
             if sym.segment < len(self._sections):
-                if leaf_type == 0x110e:
-                    # v3 symbol (c-string)
-                    name = self.parse_string(sym.name, False, sym.length - sym.vol.size + 2)
-                    address = self._sections[sym.segment - 1].VirtualAddress + sym.offset
-                elif leaf_type == 0x1009:
+                if leaf_type == 0x1009:
                     # v2 symbol (pascal-string)
                     name = self.parse_string(sym.name, True, sym.length - sym.vol.size + 2)
                     address = self._sections[sym.segment - 1].VirtualAddress + sym.offset
+                elif leaf_type == 0x110e or leaf_type == 0x1127:
+                    # v3 symbol (c-string)
+                    name = self.parse_string(sym.name, False, sym.length - sym.vol.size + 2)
+                    address = self._sections[sym.segment - 1].VirtualAddress + sym.offset
                 else:
-                    vollog.debug("Only v2 and v3 symbols are supported")
+                    vollog.debug("Only v2 and v3 symbols are supported: {:x}".format(leaf_type))
             if name:
                 if self._omap_mapping:
                     address = self.omap_lookup(address)
@@ -937,16 +937,17 @@ class PdbRetreiver:
             for suffix in [file_name, file_name[:-1] + '_']:
                 try:
                     vollog.debug("Attempting to retrieve {}".format(url + suffix))
+                    # We have to cache this because the file is opened by a layer and we can't control whether that caches
                     result = resources.ResourceAccessor(progress_callback).open(url + suffix)
                 except (error.HTTPError, error.URLError) as excp:
                     vollog.debug("Failed with {}".format(excp))
-            if result:
-                break
+                if result:
+                    break
         if progress_callback is not None:
             progress_callback(100, "Downloading {}".format(url + suffix))
         if result is None:
             return None
-        return result.name
+        return url + suffix
 
 
 if __name__ == '__main__':
@@ -1007,9 +1008,13 @@ if __name__ == '__main__':
         parser.error("No suitable filename provided or retrieved")
 
     ctx = contexts.Context()
-    if not os.path.exists(filename):
-        parser.error("File {} does not exists".format(filename))
-    location = "file:" + request.pathname2url(filename)
+    url = parse.urlparse(filename, scheme = 'file')
+    if url.scheme == 'file':
+        if not os.path.exists(filename):
+            parser.error("File {} does not exists".format(filename))
+        location = "file:" + request.pathname2url(os.path.abspath(filename))
+    else:
+        location = filename
 
     convertor = PdbReader(ctx, location, database_name = args.pattern, progress_callback = pg_cb)
 

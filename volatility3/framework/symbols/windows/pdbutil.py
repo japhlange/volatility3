@@ -9,10 +9,10 @@ import lzma
 import os
 import struct
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
-from urllib import request
+from urllib import request, parse
 
 from volatility3 import symbols
-from volatility3.framework import constants, interfaces
+from volatility3.framework import constants, interfaces, exceptions
 from volatility3.framework.configuration.requirements import SymbolTableRequirement
 from volatility3.framework.symbols import intermed
 from volatility3.framework.symbols.windows import pdbconv
@@ -20,8 +20,10 @@ from volatility3.framework.symbols.windows import pdbconv
 vollog = logging.getLogger(__name__)
 
 
-class PDBUtility:
+class PDBUtility(interfaces.configuration.VersionableInterface):
     """Class to handle and manage all getting symbols based on MZ header"""
+
+    _version = (1, 0, 0)
 
     @classmethod
     def symbol_table_from_offset(
@@ -68,7 +70,7 @@ class PDBUtility:
 
         filter_string = os.path.join(pdb_name.strip('\x00'), guid.upper() + "-" + str(age))
 
-        isf_path = False
+        isf_path = None
         # Take the first result of search for the intermediate file
         for value in intermed.IntermediateSymbolTable.file_symbol_url("windows", filter_string):
             isf_path = value
@@ -196,8 +198,12 @@ class PDBUtility:
                                                                    file_name = pdb_name,
                                                                    progress_callback = progress_callback)
                     if filename:
-                        tmp_files.append(filename)
-                        location = "file:" + request.pathname2url(tmp_files[-1])
+                        url = parse.urlparse(filename, scheme = 'file')
+                        if url.scheme == 'file' or len(url.scheme) == 1:
+                            tmp_files.append(filename)
+                            location = "file:" + request.pathname2url(os.path.abspath(tmp_files[-1]))
+                        else:
+                            location = filename
                         json_output = pdbconv.PdbReader(context, location, pdb_name, progress_callback).get_json()
                         of.write(bytes(json.dumps(json_output, indent = 2, sort_keys = True), 'utf-8'))
                         # After we've successfully written it out, record the fact so we don't clear it out
@@ -274,6 +280,47 @@ class PDBUtility:
                 'signature_offset': signature_offset,
                 'mz_offset': mz_offset
             }
+
+    @classmethod
+    def symbol_table_from_pdb(cls, context: interfaces.context.ContextInterface, config_path: str, layer_name: str,
+                              pdb_name: str, module_offset: int, module_size: int) -> str:
+        """Creates symbol table for a module in the specified layer_name.
+
+        Searches the memory section of the loaded module for its PDB GUID
+        and loads the associated symbol table into the symbol space.
+
+        Args:
+            context: The context to retrieve required elements (layers, symbol tables) from
+            config_path: The config path where to find symbol files
+            layer_name: The name of the layer on which to operate
+            module_offset: This memory dump's module image offset
+            module_size: The size of the module for this dump
+
+        Returns:
+            The name of the constructed and loaded symbol table
+        """
+
+        guids = list(
+            cls.pdbname_scan(context,
+                             layer_name,
+                             context.layers[layer_name].page_size, [bytes(pdb_name, 'latin-1')],
+                             start = module_offset,
+                             end = module_offset + module_size))
+
+        if not guids:
+            raise exceptions.VolatilityException(
+                "Did not find GUID of {} in module @ 0x{:x}!".format(pdb_name, module_offset))
+
+        guid = guids[0]
+
+        vollog.debug("Found {}: {}-{}".format(guid["pdb_name"], guid["GUID"], guid["age"]))
+
+        return cls.load_windows_symbol_table(context,
+                                             guid["GUID"],
+                                             guid["age"],
+                                             guid["pdb_name"],
+                                             "volatility3.framework.symbols.intermed.IntermediateSymbolTable",
+                                             config_path = config_path)
 
 
 class PdbSignatureScanner(interfaces.layers.ScannerInterface):

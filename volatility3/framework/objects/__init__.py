@@ -40,7 +40,7 @@ def convert_value_to_data(value: TUnion[int, float, bytes, str, bool], struct_ty
                           data_format: DataFormatInfo) -> bytes:
     """Converts a particular value to a series of bytes."""
     if not isinstance(value, struct_type):
-        raise TypeError("Written value is not of the correct type for {}".format(struct_type.__class__.__name__))
+        raise TypeError("Written value is not of the correct type for {}".format(struct_type.__name__))
 
     if struct_type == int and isinstance(value, int):
         # Doubling up on the isinstance is for mypy
@@ -56,6 +56,8 @@ def convert_value_to_data(value: TUnion[int, float, bytes, str, bool], struct_ty
             raise ValueError("Invalid float size")
         struct_format = ("<" if data_format.byteorder == 'little' else ">") + float_vals[data_format.length]
     elif struct_type in [bytes, str]:
+        if isinstance(value, str):
+            value = bytes(value, 'latin-1')
         struct_format = str(data_format.length) + "s"
     else:
         raise TypeError("Cannot construct struct format for type {}".format(type(struct_type)))
@@ -148,11 +150,12 @@ class PrimitiveObject(interfaces.objects.ObjectInterface):
             """Returns the size of the templated object."""
             return template.vol.data_format.length
 
-    def write(self, value: TUnion[int, float, bool, bytes, str]) -> None:
+    def write(self, value: TUnion[int, float, bool, bytes, str]) -> interfaces.objects.ObjectInterface:
         """Writes the object into the layer of the context at the current
         offset."""
         data = convert_value_to_data(value, self._struct_type, self._data_format)
-        return self._context.layers.write(self.vol.layer_name, self.vol.offset, data)
+        self._context.layers.write(self.vol.layer_name, self.vol.offset, data)
+        return self.cast(self.vol.type_name)
 
 
 # This must be int (and the _struct_type must be int) because bool cannot be inherited from:
@@ -621,7 +624,11 @@ class Array(interfaces.objects.ObjectInterface, collections.abc.Sequence):
         return self.vol.count
 
     def write(self, value) -> None:
-        raise NotImplementedError("Writing to Arrays is not yet implemented")
+        if not isinstance(value, collections.Sequence):
+            raise TypeError("Only Sequences can be writen to arrays")
+        self.count = len(value)
+        for index in range(len(value)):
+            self[index].write(value[index])
 
 
 class AggregateType(interfaces.objects.ObjectInterface):
@@ -747,6 +754,17 @@ class AggregateType(interfaces.objects.ObjectInterface):
             if isinstance(self, agg_type):
                 agg_name = agg_type.__name__
         raise AttributeError("{} has no attribute: {}.{}".format(agg_name, self.vol.type_name, attr))
+
+    # Disable messing around with setattr until the consequences have been considered properly
+    # For example pdbutil constructs objects and then sets values for them
+    # Some don't always match the type (for example, the data read is encoded and interpretted)
+    #
+    # def __setattr__(self, name, value):
+    #     """Method for writing specific members of a structure"""
+    #     if name in ['_concrete_members', 'vol', '_vol'] or not self.has_member(name):
+    #         return super().__setattr__(name, value)
+    #     attr = self.__getattr__(name)
+    #     return attr.write(value)
 
     def __dir__(self) -> Iterable[str]:
         """Returns a complete list of members when dir is called."""

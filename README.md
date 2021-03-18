@@ -1,6 +1,6 @@
 # Volatility 3: The volatile memory extraction framework
 
-Volatility is the world’s most widely used framework for extracting digital
+Volatility is the world's most widely used framework for extracting digital
 artifacts from volatile memory (RAM) samples. The extraction techniques are
 performed completely independent of the system being investigated but offer
 visibility into the runtime state of the system. The framework is intended
@@ -45,7 +45,7 @@ git clone https://github.com/volatilityfoundation/volatility3.git
 2. See available options:
 
     ```shell
-    python3 vol.py —h
+    python3 vol.py -h
     ```
 
 3. To get more information on a Windows memory sample and to make sure
@@ -55,10 +55,10 @@ Volatility supports that sample type, run
    Example:
 
     ```shell
-    python3 vol.py —f /home/user/samples/stuxnet.vmem windows.info
+    python3 vol.py -f /home/user/samples/stuxnet.vmem windows.info
     ```
 
-4. Run some other plugins. The `-f` or `—-single-location` is not strictly
+4. Run some other plugins. The `-f` or `--single-location` is not strictly
 required, but most plugins expect a single sample. Some also
 require/accept other options.  Run `python3 vol.py <plugin> -h`
 for more information on a particular command.
@@ -91,7 +91,7 @@ The latest generated copy of the documentation can be found at: <https://volatil
 
 ## Licensing and Copyright
 
-Copyright (C) 2007-2020 Volatility Foundation
+Copyright (C) 2007-2021 Volatility Foundation
 
 All Rights Reserved
 

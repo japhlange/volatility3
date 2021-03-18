@@ -13,7 +13,7 @@ import ssl
 import urllib.parse
 import urllib.request
 import zipfile
-from typing import Optional, Any, IO
+from typing import Optional, Any, IO, List
 from urllib import error
 
 from volatility3 import framework
@@ -62,7 +62,8 @@ class ResourceAccessor(object):
 
     def __init__(self,
                  progress_callback: Optional[constants.ProgressCallback] = None,
-                 context: Optional[ssl.SSLContext] = None) -> None:
+                 context: Optional[ssl.SSLContext] = None,
+                 enable_cache: bool = True) -> None:
         """Creates a resource accessor.
 
         Note: context is an SSL context, not a volatility context
@@ -70,6 +71,7 @@ class ResourceAccessor(object):
         self._progress_callback = progress_callback
         self._context = context
         self._handlers = list(framework.class_subclasses(urllib.request.BaseHandler))
+        self._enable_cache = enable_cache
         if self.list_handlers:
             vollog.log(constants.LOGLEVEL_VVV,
                        "Available URL handlers: {}".format(", ".join([x.__name__ for x in self._handlers])))
@@ -79,7 +81,15 @@ class ResourceAccessor(object):
         """Determines whether a URLs contents should be cached"""
         parsed_url = urllib.parse.urlparse(url)
 
-        return not parsed_url.scheme in ['file', 'jar']
+        return self._enable_cache and not parsed_url.scheme in self._non_cached_schemes()
+
+    @staticmethod
+    def _non_cached_schemes() -> List[str]:
+        """Returns the list of schemes not to be cached"""
+        result = ['file']
+        for clazz in framework.class_subclasses(VolatilityHandler):
+            result += clazz.non_cached_schemes()
+        return result
 
     # Current urllib.request.urlopen returns Any, so we do the same
     def open(self, url: str, mode: str = "rb") -> Any:
@@ -201,7 +211,14 @@ class ResourceAccessor(object):
         return curfile
 
 
-class JarHandler(urllib.request.BaseHandler):
+class VolatilityHandler(urllib.request.BaseHandler):
+
+    @classmethod
+    def non_cached_schemes(cls) -> List[str]:
+        return []
+
+
+class JarHandler(VolatilityHandler):
     """Handles the jar scheme for URIs.
 
     Reference used for the schema syntax:
@@ -210,6 +227,9 @@ class JarHandler(urllib.request.BaseHandler):
     Actual reference (found from https://www.w3.org/wiki/UriSchemes/jar) seemed not to return:
     http://developer.java.sun.com/developer/onlineTraining/protocolhandlers/
     """
+    @classmethod
+    def non_cached_schemes(cls) -> List[str]:
+        return ['jar']
 
     @staticmethod
     def default_open(req: urllib.request.Request) -> Optional[Any]:
